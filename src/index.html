@@ -108,7 +108,7 @@ Creation Date: 2025-03-19 -->
       <button onclick="reset()">Reset</button>
     </div>
 
-    <div id="bonus-controls">
+    <!-- <div id="bonus-controls">
       <strong>Reflection:</strong><br>
       <label>Reflect X
         <input type="checkbox" id="reflectX">
@@ -126,12 +126,14 @@ Creation Date: 2025-03-19 -->
       <input type="number" id="shearY" value="0" step="0.1"><br>
       <label for="shearZ">Shear Z:</label>
       <input type="number" id="shearZ" value="0" step="0.1"><br>
-    </div>
+    </div> -->
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
     <script src="../Common/initShaders.js"></script>
     <script src="../Common/MV.js"></script>
-    <script src="Assignment_6.js"></script>
+    <script src="main.js"></script>
+    <script src="clustering.js"></script>
+    <script src="data.js"></script>
     <script>
       function initializeClustering() {
         let method = document.getElementById("clusteringMethod").value;

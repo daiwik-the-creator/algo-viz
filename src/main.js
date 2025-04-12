@@ -5,6 +5,8 @@ let azimuth = 580;//-50;          // Yaw (left-right)
 let elevation = -20;       // Pitch (up-down)
 let isMouseDown = false;
 let lastX, lastY;
+let lightingEnabled = true;
+let textureEnabled = true;  
 
 document.addEventListener("mousedown", (e) => {
     isMouseDown = true;
@@ -43,63 +45,79 @@ function getCameraPosition() {
     return vec3(x, y, z);
 }
 
-var vertexShaderSource = `
-    precision mediump float;
+var vertexShaderSource = `#version 300 es
+in vec3 aPosition;
+in vec3 aNormal;
+in vec2 aTexCoord;
+in vec3 aColor;
 
-    attribute vec3 aPosition;       // Position of the vertex
-    attribute vec2 aTexCoord;       // Texture coordinates (u, v)
-    attribute vec3 aColor;          // Color of the vertex
+uniform mat4 uModelMatrix;
+uniform mat4 uViewMatrix;
+uniform mat4 uProjectionMatrix;
 
-    varying vec2 vTexCoord;         // To pass texture coordinates to fragment shader
-    varying vec3 vColor;            // To pass color to fragment shader
+uniform vec3 uLightPosition;
+uniform vec3 uViewPosition;
 
-    uniform mat4 uModelMatrix;      // Model matrix (world space)
-    uniform mat4 uViewMatrix;       // View matrix (camera)
-    uniform mat4 uProjectionMatrix; // Projection matrix (perspective)
+uniform vec3 uAmbientColor;
+uniform vec3 uDiffuseColor;
+uniform vec3 uSpecularColor;
+uniform float uShininess;
 
-    void main()
-    {
-        vColor = aColor;           // Pass color
-        vTexCoord = aTexCoord;     // Pass texture coordinates
-        gl_Position = uProjectionMatrix * uViewMatrix * uModelMatrix * vec4(aPosition, 1.0);  // Apply transformations
-    }
+out vec3 vLighting;
+out vec2 vTexCoord;
+out vec3 vColor;
+
+void main() {
+    vec4 posEye = uViewMatrix * uModelMatrix * vec4(aPosition, 1.0);
+    vec3 N = normalize(mat3(transpose(inverse(uViewMatrix * uModelMatrix))) * aNormal);
+    vec3 L = normalize(uLightPosition - posEye.xyz);
+    vec3 V = normalize(uViewPosition - posEye.xyz);
+    vec3 H = normalize(L + V);
+
+    float diff = max(dot(N, L), 0.0);
+    float spec = pow(max(dot(N, H), 0.0), uShininess);
+
+    vLighting = uAmbientColor + diff * uDiffuseColor + spec * uSpecularColor;
+    vTexCoord = aTexCoord;
+    vColor = aColor;
+
+    gl_Position = uProjectionMatrix * posEye;
+}
 
 `;
+var fragmentShaderSource = `#version 300 es
+precision mediump float;
 
-var fragmentShaderSource = `
-    precision mediump float;
+in vec3 vLighting;
+in vec2 vTexCoord;
+in vec3 vColor;
 
-    varying vec2 vTexCoord;         // Texture coordinates passed from vertex shader
-    varying vec3 vColor;            // Color passed from vertex shader
+uniform sampler2D uTexture;
+uniform bool uUseTexture;
+uniform bool uLightingEnabled;
 
-    uniform sampler2D uTexture;     // Texture sampler
+out vec4 outColor;
 
-    uniform bool uUseTexture;       // Flag to determine whether to use texture
-
-    void main() {
-        if (uUseTexture) {
-            // Use texture if uUseTexture is true
-            gl_FragColor = texture2D(uTexture, vTexCoord) * vec4(vColor, 1.0);
-        } else {
-            // Use color if no texture is applied
-            gl_FragColor = vec4(vColor, 1.0);
-        }
-    }
+void main() {
+    vec3 texColor = uUseTexture ? texture(uTexture, vTexCoord).rgb : vec3(1.0);
+    vec3 litColor = uLightingEnabled ? vLighting : vec3(1.0);
+    vec3 finalColor = texColor * vColor * litColor;
+    outColor = vec4(finalColor * 1.5, 1.0);
+}
 `;
-
 
 const arrowVertices = [
-    // X-Axis Arrow (Triangle at end)
+    // X-Axis Arrow 
     1.2,  0.05,  0.0,  1, 0, 0,
     1.2, -0.05,  0.0,  1, 0, 0,
     1.3,  0.0,   0.0,  1, 0, 0,
 
-    // Y-Axis Arrow (Triangle at end)
+    // Y-Axis Arrow 
     0.05,  1.2,  0.0,  0, 1, 0,
    -0.05,  1.2,  0.0,  0, 1, 0,
     0.0,   1.3,  0.0,  0, 1, 0,
 
-    // Z-Axis Arrow (Triangle at end)
+    // Z-Axis Arrow 
     0.05,  0.0,  1.2,  0, 0, 1,
    -0.05,  0.0,  1.2,  0, 0, 1,
     0.0,   0.05, 1.3,  0, 0, 1
@@ -173,7 +191,7 @@ window.onload = function init(){
     }
 
     var program = gl.createProgram();
-    texture = loadTexture(gl, '1tex.jpg'); // Replace with your texture URL
+    texture = loadTexture(gl, 'texture.jpg');
     gl.attachShader(program, vertexShader);
     gl.attachShader(program, fragmentShader);
     
@@ -207,250 +225,304 @@ window.onload = function init(){
     var positionAttributeLocation = gl.getAttribLocation(program, 'aPosition');
     var texCoordAttributeLocation = gl.getAttribLocation(program, 'aTexCoord');
     var colorAttributeLocation = gl.getAttribLocation(program, 'aColor');
+    var normalAttributeLocation = gl.getAttribLocation(program, 'aNormal');
 
     // Tell OpenGL state machine which program should be active. 
     gl.useProgram(program);
 
     // Get uniform locations
-    var matWorldUniformLocation = gl.getUniformLocation(program, 'uModelMatrix');
-    var matViewUniformLocation = gl.getUniformLocation(program, 'uViewMatrix');
-    var matProjUniformLocation = gl.getUniformLocation(program, 'uProjectionMatrix');
-    var textureUniformLocation = gl.getUniformLocation(program, 'uTexture');
-    var useTextureUniformLocation = gl.getUniformLocation(program, 'uUseTexture');  // Added uniform for texture flag
+    let modelMatrixUniformLocation = gl.getUniformLocation(program, "uModelMatrix");
+    let matViewUniformLocation = gl.getUniformLocation(program, "uViewMatrix");
+    let matProjUniformLocation = gl.getUniformLocation(program, "uProjectionMatrix");
+    
+    let textureUniformLocation = gl.getUniformLocation(program, "uTexture");
+    let lightPositionUniformLocation = gl.getUniformLocation(program, "uLightPosition");
+    const lightingEnabledUniformLocation = gl.getUniformLocation(program, "uLightingEnabled");
+    let viewPositionUniformLocation = gl.getUniformLocation(program, "uViewPosition");
+    let useTextureUniformLocation = gl.getUniformLocation(program, "uUseTexture");
+    
+    let ambientColorUniformLocation = gl.getUniformLocation(program, "uAmbientColor");
+    let diffuseColorUniformLocation = gl.getUniformLocation(program, "uDiffuseColor");
+    let specularColorUniformLocation = gl.getUniformLocation(program, "uSpecularColor");
+    let shininessUniformLocation = gl.getUniformLocation(program, "uShininess");    
 
     let cameraPos = vec3(2, 2, 2); // returns [x, y, z]
     let target = vec3(0, 0, 0);              // Orbiting around origin
     let up = vec3(0, 1, 0);
 
+    // // === Light and Material Setup ===
+    let lightPosition = vec3(parseFloat(document.getElementById("lightX").value), parseFloat(document.getElementById("lightY").value), parseFloat(document.getElementById("lightZ").value));
+    let lightPosVec4 = vec4(lightPosition, 1.0);
+    var viewMatrix =  lookAt(cameraPos, target, up); 
+    let lightPosEyeVec4 = mult(viewMatrix, lightPosVec4);
+
+    // Upload light values
+    gl.uniform3fv(lightPositionUniformLocation, lightPosEyeVec4.slice(0,3));
+    gl.uniform3fv(gl.getUniformLocation(program, "uAmbientColor"), [0.2, 0.2, 0.2]);
+    gl.uniform3fv(gl.getUniformLocation(program, "uDiffuseColor"), [1.0, 1.0, 1.0]);
+    gl.uniform3fv(gl.getUniformLocation(program, "uSpecularColor"), [1.0, 1.0, 1.0]);
+    gl.uniform1f(gl.getUniformLocation(program, "uShininess"), 64.0);
+
     // Define transformation matrices
-    var worldMatrix = mat4();  // Identity matrix by default
-    var viewMatrix =  lookAt(cameraPos, target, up);  // LookAt function in MV.js
-    var projMatrix = perspective(45, canvas.width / canvas.height, 0.1, 1000.0);  // Perspective matrix in MV.js
+    var worldMatrix = mat4();
+    var projMatrix = perspective(45, canvas.width / canvas.height, 0.1, 100.0);
 
     // Pass matrices to WebGL
-    gl.uniformMatrix4fv(matWorldUniformLocation, gl.FALSE, flatten(worldMatrix));
+    gl.uniformMatrix4fv(modelMatrixUniformLocation, gl.FALSE, flatten(worldMatrix));
     gl.uniformMatrix4fv(matViewUniformLocation, gl.FALSE, flatten(viewMatrix));
     gl.uniformMatrix4fv(matProjUniformLocation, gl.FALSE, flatten(projMatrix));
 
-    // Set texture (you may need to activate the texture and set it before rendering)
+    // Set texture
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, texture);
-    gl.uniform1i(textureUniformLocation, 0);  // Bind texture to texture unit 0
+    gl.uniform1i(textureUniformLocation, 0); 
 
     // Set the texture usage flag to false
     gl.uniform1i(useTextureUniformLocation, false);
 
-    const sphereBuffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, sphereBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(sphereVertices), gl.STATIC_DRAW);
+    // Sphere Buffers
+    const sphereVertexBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, sphereVertexBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, sphereVertices, gl.STATIC_DRAW);
+
+    const sphereNormalBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, sphereNormalBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, generateSphere(0.2, 32, 32).normals, gl.STATIC_DRAW);
+
+    const sphereTexCoordBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, sphereTexCoordBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, sphereUv, gl.STATIC_DRAW);
 
     const sphereIndexBuffer = gl.createBuffer();
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, sphereIndexBuffer);
-    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(sphereIndices), gl.STATIC_DRAW);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, sphereIndices, gl.STATIC_DRAW);
 
-    const centroidBuffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, centroidBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(centroidVertices), gl.STATIC_DRAW);
+    // Centroid Buffers
+    const centroidVertexBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, centroidVertexBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, centroidVertices, gl.STATIC_DRAW);
+
+    const centroidNormalBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, centroidNormalBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, generateSphere(0.8, 32, 32).normals, gl.STATIC_DRAW);
+
+    const centroidTexCoordBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, centroidTexCoordBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, centroidUv, gl.STATIC_DRAW);
 
     const centroidIndexBuffer = gl.createBuffer();
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, centroidIndexBuffer);
-    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(centroidIndices), gl.STATIC_DRAW);
-
-    // Create buffer for texture coordinates
-    let textureCoordBuffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, textureCoordBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(sphereUv), gl.STATIC_DRAW);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, centroidIndices, gl.STATIC_DRAW);
     
-    // Main Render Loop
-var loop = function() {
-    // === Orbit Camera Setup ===
-    let radAzimuth = azimuth * Math.PI / 180;
-    let radElevation = elevation * Math.PI / 180;
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthFunc(gl.LEQUAL);
+    
+    var loop = function () {
+        // === Camera Setup ===
+        let radAzimuth = azimuth * Math.PI / 180;
+        let radElevation = elevation * Math.PI / 180;
+    
+        let cameraX = radius * Math.cos(radElevation) * Math.sin(radAzimuth);
+        let cameraY = radius * Math.sin(radElevation);
+        let cameraZ = radius * Math.cos(radElevation) * Math.cos(radAzimuth);
+        let cameraPos = vec3(-cameraX, -cameraY, cameraZ);
+    
+        let viewMatrix = lookAt(cameraPos, vec3(0, 0, 0), vec3(0, 1, 0));
+        let projMatrix = perspective(45, canvas.width / canvas.height, 0.1, 1000.0);
+    
+        gl.uniform3fv(viewPositionUniformLocation, flatten(cameraPos));
+        gl.uniformMatrix4fv(matViewUniformLocation, false, flatten(viewMatrix));
+        gl.uniformMatrix4fv(matProjUniformLocation, false, flatten(projMatrix));
 
-    let cameraX = radius * Math.cos(radElevation) * Math.sin(radAzimuth);
-    let cameraY = radius * Math.sin(radElevation);
-    let cameraZ = radius * Math.cos(radElevation) * Math.cos(radAzimuth);
-    let cameraPos = vec3(-cameraX, -cameraY, cameraZ);
+        // === Light Setup ===
+        gl.uniform1i(lightingEnabledUniformLocation, lightingEnabled ? 1 : 0);
+        let lightWorldPos = vec3(parseFloat(document.getElementById("lightX").value), parseFloat(document.getElementById("lightY").value), parseFloat(document.getElementById("lightZ").value)); // Light in world space
+        let lightWorldVec4 = vec4(lightWorldPos[0], lightWorldPos[1], lightWorldPos[2], 1.0);
+        let lightEyeVec4 = mult(viewMatrix, lightWorldVec4); // Transform to eye space
 
-    let viewMatrix = lookAt(cameraPos, vec3(0, 0, 0), vec3(0, 1, 0));
-    let projMatrix = perspective(45, canvas.width / canvas.height, 0.1, 100.0);
+        gl.uniform3fv(lightPositionUniformLocation, lightEyeVec4.slice(0, 3));
 
-    // Upload view and projection
-    gl.uniformMatrix4fv(matViewUniformLocation, false, flatten(viewMatrix));
-    gl.uniformMatrix4fv(matProjUniformLocation, false, flatten(projMatrix));
-
-    // TRANSLATION matrix
-    let translationMatrix = translate(tx, ty, tz);
-
-    // SCALE matrix
-    let scaleMatrix = scale(sx, sy, sz);
-
-    // Combine translation and scale
-    worldMatrix = mult(translationMatrix, scaleMatrix);
-
-    // Upload the transformation matrix
-    gl.uniformMatrix4fv(matWorldUniformLocation, gl.FALSE, flatten(worldMatrix));
-        
-    // Set background color
-    gl.clearColor(30 / 255, 30 / 255, 30 / 255, 1.0);
-    gl.clear(gl.DEPTH_BUFFER_BIT | gl.COLOR_BUFFER_BIT);
-        
-    // Draw Grid (without texture)
-    gl.bindBuffer(gl.ARRAY_BUFFER, gridBuffer);
-    gl.vertexAttribPointer(positionAttributeLocation, 3, gl.FLOAT, gl.FALSE, 6 * Float32Array.BYTES_PER_ELEMENT, 0);
-    gl.vertexAttribPointer(colorAttributeLocation, 3, gl.FLOAT, gl.FALSE, 6 * Float32Array.BYTES_PER_ELEMENT, 3 * Float32Array.BYTES_PER_ELEMENT);
-    gl.enableVertexAttribArray(positionAttributeLocation);
-    gl.enableVertexAttribArray(colorAttributeLocation);
-    // gl.disableVertexAttribArray(texCoordAttributeLocation); // Disable texture coords for grid
-    gl.drawArrays(gl.LINES, 0, gridVertices.length / 6);
-
-    // Draw Axes (without texture)
-    gl.bindBuffer(gl.ARRAY_BUFFER, axisBuffer);
-    gl.vertexAttribPointer(positionAttributeLocation, 3, gl.FLOAT, gl.FALSE, 6 * Float32Array.BYTES_PER_ELEMENT, 0);
-    gl.vertexAttribPointer(colorAttributeLocation, 3, gl.FLOAT, gl.FALSE, 6 * Float32Array.BYTES_PER_ELEMENT, 3 * Float32Array.BYTES_PER_ELEMENT);
-    //gl.disableVertexAttribArray(texCoordAttributeLocation); // Disable texture coords for axes
-    gl.drawArrays(gl.LINES, 0, axisVertices.length / 6);
-
-    // Draw Arrowheads (without texture)
-    gl.bindBuffer(gl.ARRAY_BUFFER, arrowBuffer);
-    gl.vertexAttribPointer(positionAttributeLocation, 3, gl.FLOAT, gl.FALSE, 6 * Float32Array.BYTES_PER_ELEMENT, 0);
-    gl.vertexAttribPointer(colorAttributeLocation, 3, gl.FLOAT, gl.FALSE, 6 * Float32Array.BYTES_PER_ELEMENT, 3 * Float32Array.BYTES_PER_ELEMENT);
-    //gl.disableVertexAttribArray(texCoordAttributeLocation); // Disable texture coords for arrows
-    gl.drawArrays(gl.TRIANGLES, 0, arrowVertices.length / 6);
-
-    // 🌟 Draw Spheres (with texture)
-    dataPoints.forEach(point => {
-        // Compute local transformation for each sphere
-        let localModelMatrix = mult(translate(point.x, point.y, point.z), scale(0.2, 0.2, 0.2));
-        let finalModelMatrix = localModelMatrix;
-
-        gl.uniformMatrix4fv(matWorldUniformLocation, gl.FALSE, flatten(finalModelMatrix));
-
-        // Create color buffer for this sphere
-        let sphereColors = [];
-        for (let i = 0; i < sphereVertices.length / 3; i++) {
-            sphereColors.push(point.r, point.g, point.b); // Assign color to each vertex
-        }
-
-        // Create color buffer only once per loop
-        let sphereColorBuffer = gl.createBuffer();
-        gl.bindBuffer(gl.ARRAY_BUFFER, sphereColorBuffer);
-        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(sphereColors), gl.STATIC_DRAW);
-        gl.vertexAttribPointer(colorAttributeLocation, 3, gl.FLOAT, gl.FALSE, 0, 0);
-        gl.enableVertexAttribArray(colorAttributeLocation);
-
-        // Bind the sphere vertex data
-        gl.bindBuffer(gl.ARRAY_BUFFER, sphereBuffer);
-        gl.vertexAttribPointer(positionAttributeLocation, 3, gl.FLOAT, gl.FALSE, 6 * Float32Array.BYTES_PER_ELEMENT, 0);
-        gl.vertexAttribPointer(texCoordAttributeLocation, 2, gl.FLOAT, gl.FALSE, 6 * Float32Array.BYTES_PER_ELEMENT, 3 * Float32Array.BYTES_PER_ELEMENT);
+        gl.uniform3fv(ambientColorUniformLocation, [0.1, 0.1, 0.1]);
+        gl.uniform3fv(diffuseColorUniformLocation, [1.0, 1.0, 1.0]);
+        gl.uniform3fv(specularColorUniformLocation, [1.0, 1.0, 1.0]);
+        gl.uniform1f(shininessUniformLocation, 100.0);
+    
+        // === Clear ===
+        gl.enable(gl.DEPTH_TEST);
+        gl.clearColor(0.05, 0.05, 0.08, 1.0);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    
+        // === Grid / Axes / Arrows ===
+        let identityMatrix = mat4();
+        gl.uniformMatrix4fv(modelMatrixUniformLocation, false, flatten(identityMatrix));
+    
+        gl.bindBuffer(gl.ARRAY_BUFFER, gridBuffer);
+        gl.vertexAttribPointer(positionAttributeLocation, 3, gl.FLOAT, false, 6 * 4, 0);
+        gl.vertexAttribPointer(colorAttributeLocation, 3, gl.FLOAT, gl.FALSE, 6 * Float32Array.BYTES_PER_ELEMENT, 3 * Float32Array.BYTES_PER_ELEMENT);
         gl.enableVertexAttribArray(positionAttributeLocation);
-        gl.enableVertexAttribArray(texCoordAttributeLocation);
-        gl.uniform1i(useTextureUniformLocation, true);
+        gl.drawArrays(gl.LINES, 0, gridVertices.length / 6);
+    
+        gl.bindBuffer(gl.ARRAY_BUFFER, axisBuffer);
+        gl.vertexAttribPointer(positionAttributeLocation, 3, gl.FLOAT, false, 6 * 4, 0);
+        gl.vertexAttribPointer(colorAttributeLocation, 3, gl.FLOAT, gl.FALSE, 6 * Float32Array.BYTES_PER_ELEMENT, 3 * Float32Array.BYTES_PER_ELEMENT);
+        gl.drawArrays(gl.LINES, 0, axisVertices.length / 6);
+    
+        gl.bindBuffer(gl.ARRAY_BUFFER, arrowBuffer);
+        gl.vertexAttribPointer(positionAttributeLocation, 3, gl.FLOAT, false, 6 * 4, 0);
+        gl.vertexAttribPointer(colorAttributeLocation, 3, gl.FLOAT, gl.FALSE, 6 * Float32Array.BYTES_PER_ELEMENT, 3 * Float32Array.BYTES_PER_ELEMENT);
+        gl.drawArrays(gl.TRIANGLES, 0, arrowVertices.length / 6);
+    
+        // === Draw Spheres ===
+        dataPoints.forEach(point => {  
+            let modelMatrix = mult(translate(point.x, point.y, point.z), scale(0.2, 0.2, 0.2));
+            gl.uniformMatrix4fv(modelMatrixUniformLocation, false, flatten(modelMatrix)); // used in rendering
+            gl.uniformMatrix4fv(modelMatrixUniformLocation, false, flatten(modelMatrix)); // used in lighting shader
+    
+            // Position
+            gl.bindBuffer(gl.ARRAY_BUFFER, sphereVertexBuffer);
+            gl.vertexAttribPointer(positionAttributeLocation, 3, gl.FLOAT, false, 0, 0);
+            gl.enableVertexAttribArray(positionAttributeLocation);
 
-        // Bind the texture for spheres
-        gl.activeTexture(gl.TEXTURE0);
-        gl.bindTexture(gl.TEXTURE_2D, texture);
-        gl.uniform1i(textureUniformLocation, 0); // Texture unit 0
+            // Normals
+            gl.bindBuffer(gl.ARRAY_BUFFER, sphereNormalBuffer);
+            gl.vertexAttribPointer(normalAttributeLocation, 3, gl.FLOAT, false, 0, 0);
+            gl.enableVertexAttribArray(normalAttributeLocation);
 
-        // Bind and draw the indexed geometry (sphere)
-        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, sphereIndexBuffer);
-        gl.drawElements(gl.TRIANGLES, sphereIndices.length, gl.UNSIGNED_SHORT, 0);
+            // Texture Coords
+            gl.bindBuffer(gl.ARRAY_BUFFER, sphereTexCoordBuffer);
+            gl.vertexAttribPointer(texCoordAttributeLocation, 2, gl.FLOAT, false, 0, 0);
+            gl.enableVertexAttribArray(texCoordAttributeLocation);
 
-        gl.deleteBuffer(sphereColorBuffer);  // Cleanup after rendering
-        gl.uniform1i(useTextureUniformLocation, false);
-    });
+            // Color 
+            let sphereColors = [];
+            for (let i = 0; i < sphereVertices.length / 3; i++) {
+                sphereColors.push(point.r, point.g, point.b); 
+            }
 
+            let sphereColorBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, sphereColorBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(sphereColors), gl.STATIC_DRAW);
+            gl.vertexAttribPointer(colorAttributeLocation, 3, gl.FLOAT, gl.FALSE, 0, 0);
+            gl.enableVertexAttribArray(colorAttributeLocation);
 
+            // Bind texture
+            gl.uniform1i(useTextureUniformLocation, textureEnabled);
+            gl.activeTexture(gl.TEXTURE0);
+            gl.bindTexture(gl.TEXTURE_2D, texture);
+            gl.uniform1i(textureUniformLocation, 0);
+    
+            // Per-object material (if any unique per-point lighting wanted)
+            gl.uniform3fv(diffuseColorUniformLocation, [point.r, point.g, point.b]);
 
-    kMeans.centroids.forEach((point, index) => {
+            // Draw
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, sphereIndexBuffer);
+            gl.drawElements(gl.TRIANGLES, sphereIndices.length, gl.UNSIGNED_SHORT, 0);
 
-        // Apply transformations (worldMatrix affects all objects)
-        let localModelMatrix = mult(translate(point[0], point[1], point[2]), scale(0.2, 0.2, 0.2));
-        let finalModelMatrix = localModelMatrix;
+            // gl.deleteBuffer(sphereColorBuffer);  // Cleanup after rendering
+            gl.uniform1i(useTextureUniformLocation, false)
+        });
 
-        gl.uniformMatrix4fv(matWorldUniformLocation, gl.FALSE, flatten(finalModelMatrix));
+        kMeans.centroids.forEach((point, index) => {
+            let modelMatrix = mult(translate(point[0], point[1], point[2]), scale(0.2, 0.2, 0.2));
+            gl.uniformMatrix4fv(modelMatrixUniformLocation, false, flatten(modelMatrix));
+        
+            // Disable texturing
+            gl.uniform1i(useTextureUniformLocation, false);
+        
+            // Create flat color buffer
+            let centroidColors = [];
+            for (let i = 0; i < centroidVertices.length / 3; i++) {
+                centroidColors.push(...kMeans.clusterColors[index]);
+            }
+            let centroidColorBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, centroidColorBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(centroidColors), gl.STATIC_DRAW);
+            gl.vertexAttribPointer(colorAttributeLocation, 3, gl.FLOAT, gl.FALSE, 0, 0);
+            gl.enableVertexAttribArray(colorAttributeLocation);
 
-        // Bind centroid buffer and set position attribute
-        gl.bindBuffer(gl.ARRAY_BUFFER, centroidBuffer);
-        gl.vertexAttribPointer(positionAttributeLocation, 3, gl.FLOAT, gl.FALSE, 6 * Float32Array.BYTES_PER_ELEMENT, 0);
-        gl.enableVertexAttribArray(positionAttributeLocation);
-
-        // Create and Bind Color Buffer (Fixing Color Assignment)
-        const centroidColors = [];
-        for (let i = 0; i < centroidVertices.length / 3; i++) {
-            centroidColors.push(kMeans.clusterColors[index][0], kMeans.clusterColors[index][1], kMeans.clusterColors[index][2]); // Assign color for each vertex
-        }
-
-        const centroidColorBuffer = gl.createBuffer();
-        gl.bindBuffer(gl.ARRAY_BUFFER, centroidColorBuffer);
-        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(centroidColors), gl.STATIC_DRAW);
-
-        gl.vertexAttribPointer(colorAttributeLocation, 3, gl.FLOAT, gl.FALSE, 0, 0);
-        gl.enableVertexAttribArray(colorAttributeLocation);
-
-        // Bind element buffer and draw
-        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, centroidIndexBuffer);
-        gl.drawElements(gl.TRIANGLES, centroidIndices.length, gl.UNSIGNED_SHORT, 0);
-
-        // Cleanup color buffer to prevent memory leaks
-        gl.deleteBuffer(centroidColorBuffer);
-    });
-
-        requestAnimationFrame(loop);
-    }
-
-    kMeans.initialize();
+            // === Position ===
+            gl.bindBuffer(gl.ARRAY_BUFFER, centroidVertexBuffer);
+            gl.vertexAttribPointer(positionAttributeLocation, 3, gl.FLOAT, false, 0, 0);
+            gl.enableVertexAttribArray(positionAttributeLocation);
+        
+            // === Normals ===
+            gl.bindBuffer(gl.ARRAY_BUFFER, centroidNormalBuffer);
+            gl.vertexAttribPointer(normalAttributeLocation, 3, gl.FLOAT, false, 0, 0);
+            gl.enableVertexAttribArray(normalAttributeLocation);
+        
+            // === Texture Coordinates ===
+            gl.bindBuffer(gl.ARRAY_BUFFER, centroidTexCoordBuffer);
+            gl.vertexAttribPointer(texCoordAttributeLocation, 2, gl.FLOAT, false, 0, 0);
+            gl.enableVertexAttribArray(texCoordAttributeLocation);
+        
+            // === Lighting uniforms ===
+            gl.uniform3fv(ambientColorUniformLocation, [0.1, 0.1, 0.1]);
+            gl.uniform3fv(diffuseColorUniformLocation, kMeans.clusterColors[index]);
+            gl.uniform3fv(specularColorUniformLocation, [1.0, 1.0, 1.0]);
+            gl.uniform1f(shininessUniformLocation, 100.0);
+        
+            // === Draw ===
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, centroidIndexBuffer);
+            gl.drawElements(gl.TRIANGLES, centroidIndices.length, gl.UNSIGNED_SHORT, 0);
+        });        
     requestAnimationFrame(loop);
-};
+    }
+    setData();
+    kMeans.initialize(3);
+    requestAnimationFrame(loop);
+
+}
 
 function generateSphere(radius, latBands, longBands) {
     let vertices = [];
-    let indices = [];
+    let normals = [];
     let textureCoordinates = [];
+    let indices = [];
 
-    // Loop through each latitude band
     for (let lat = 0; lat <= latBands; lat++) {
-        let theta = lat * Math.PI / latBands; // latitude angle
+        let theta = lat * Math.PI / latBands;
         let sinTheta = Math.sin(theta);
         let cosTheta = Math.cos(theta);
 
-        // Loop through each longitude band
         for (let lon = 0; lon <= longBands; lon++) {
-            let phi = lon * 2 * Math.PI / longBands; // longitude angle
+            let phi = lon * 2 * Math.PI / longBands;
             let sinPhi = Math.sin(phi);
             let cosPhi = Math.cos(phi);
 
-            // Calculate vertex position
+            // Vertex position
             let x = radius * sinTheta * cosPhi;
             let y = radius * cosTheta;
             let z = radius * sinTheta * sinPhi;
-
-            // Push the vertex position to the vertices array
             vertices.push(x, y, z);
 
-            // Calculate texture coordinates (u, v)
+            // Normal (unit vector from center to point)
+            let nx = sinTheta * cosPhi;
+            let ny = cosTheta;
+            let nz = sinTheta * sinPhi;
+            normals.push(nx, ny, nz);
+
+            // Texture coordinates
             let u = lon / longBands;
             let v = lat / latBands;
             textureCoordinates.push(u, v);
         }
     }
 
-    // Create the indices for the sphere's triangles
     for (let lat = 0; lat < latBands; lat++) {
         for (let lon = 0; lon < longBands; lon++) {
             let first = lat * (longBands + 1) + lon;
             let second = first + longBands + 1;
 
-            // Two triangles per latitude-longitude quad
-            indices.push(first, second, first + 1);           // First triangle
-            indices.push(second, second + 1, first + 1);     // Second triangle
+            indices.push(first, second, first + 1);
+            indices.push(second, second + 1, first + 1);
         }
     }
 
     return {
         vertices: new Float32Array(vertices),
-        indices: new Uint16Array(indices),
+        normals: new Float32Array(normals),
         textureCoordinates: new Float32Array(textureCoordinates),
+        indices: new Uint16Array(indices),
     };
 }
 
@@ -458,7 +530,6 @@ function loadTexture(gl, url) {
     const texture = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, texture);
 
-    // Set default texture as a placeholder while the actual texture is being loaded
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 255, 255])); 
 
     const image = new Image();
@@ -466,7 +537,6 @@ function loadTexture(gl, url) {
         gl.bindTexture(gl.TEXTURE_2D, texture);
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
 
-        // Mipmapping, set texture filtering if available
         gl.generateMipmap(gl.TEXTURE_2D);
 
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
@@ -476,4 +546,23 @@ function loadTexture(gl, url) {
     image.src = url;
 
     return texture;
+}
+
+function reset() {
+    // Reset the dataset to default
+    document.getElementById("data").value = "default";
+    setData()
+
+    // Reset the clustering method to K-Means
+    document.getElementById("clusteringMethod").value = "kmeans";
+    document.getElementById("kValue").value = 3;
+    kMeans.initialize(3);
+
+    // Reset lighting and texture toggles
+    document.getElementById("toggleLighting").checked = true; 
+    document.getElementById("toggleTexture").checked = true; 
+    lightingEnabled = true; 
+    textureEnabled = true;
+
+    document.getElementById("upload").value = "";
 }

@@ -1,3 +1,24 @@
+let dataPoints = [];
+
+function setData() {
+    let type = document.getElementById("data").value;
+    console.log(type);
+    if (type == "swissroll") {
+        dataPoints = makeSwissRoll(1000, 0.5);
+    } else if (type == "noise") {
+        dataPoints = []
+        loadCSV('dataset.csv', 500).then(() => {
+            console.log("Final Normalized Data Points:", dataPoints);
+        });
+    } else {
+        dataPoints = [
+            ...generateCluster({ x: 1.0, y: 1.0, z: 1.0 }, 100), // Cluster 1
+            ...generateCluster({ x: -1.0, y: -1.0, z: -1.0 }, 100), // Cluster 2
+            ...generateCluster({ x: 0.5, y: -0.5, z: 0.5 }, 100), // Cluster 3
+        ];     
+    }
+}
+
 function randomPoints(count, range = 10) {
     const points = [];
     for (let i = 0; i < count; i++) {
@@ -10,11 +31,6 @@ function randomPoints(count, range = 10) {
     }
     return points;
 }
-
-// let dataPoints = [
-//     { x: 1.0, y: 1.0, z: 1.0, r: 1, g: 0, b: 0 },
-//     { x: 1.1, y: 0.9, z: 1.2, r: 1, g: 0, b: 0 },
-let dataPoints = [];
 
 function generateCluster(center, size, noise = 1.1) {
     const cluster = [];
@@ -98,14 +114,6 @@ function makeSwissRoll(n_samples = 1000, noise = 0.0, layers = 3, hole = false) 
     return dataPoints;
 }
 
-dataPoints = [
-    ...generateCluster({ x: 1.0, y: 1.0, z: 1.0 }, 100), // Cluster 1
-    ...generateCluster({ x: -1.0, y: -1.0, z: -1.0 }, 100), // Cluster 2
-    ...generateCluster({ x: 0.5, y: -0.5, z: 0.5 }, 100), // Cluster 3
-];
-
-
-
 async function loadCSV(filePath, rowLimit = Infinity) {
     const response = await fetch(filePath);
     const csvText = await response.text();
@@ -143,9 +151,36 @@ async function loadCSV(filePath, rowLimit = Infinity) {
     });
 }
 
-// Example usage: Load only the first 10 rows with normalization
-// loadCSV('dataset.csv', 500).then(() => {
-//     console.log("Final Normalized Data Points:", dataPoints);
-// });
-
-// dataPoints = makeSwissRoll(1000, 0.5);
+// Handle user-uploaded CSV file with [X, Y, Z] format, no headers
+function handleUploadedCSV(file, maxPoints = 500) {
+    Papa.parse(file, {
+      complete: function(results) {
+        const rawData = results.data;
+  
+        const cleanedData = rawData
+          .filter(row => row.length >= 3 && !isNaN(row[0]) && !isNaN(row[1]) && !isNaN(row[2]))
+          .slice(0, maxPoints); // Limit to maxPoints
+  
+        // Find min and max for each axis
+        const getMinMax = (index) => {
+          const values = cleanedData.map(row => parseFloat(row[index]));
+          return [Math.min(...values), Math.max(...values)];
+        };
+  
+        const [minX, maxX] = getMinMax(0);
+        const [minY, maxY] = getMinMax(1);
+        const [minZ, maxZ] = getMinMax(2);
+  
+        const normalize = (value, min, max) => ((value - min) / (max - min)) * 2 - 1;
+  
+        dataPoints = cleanedData.map(row => ({
+          x: normalize(parseFloat(row[0]), minX, maxX),
+          y: normalize(parseFloat(row[1]), minY, maxY),
+          z: normalize(parseFloat(row[2]), minZ, maxZ),
+          r: 1, g: 1, b: 1
+        }));
+  
+        updateVisualization("User dataset loaded");
+      }
+    });
+  }

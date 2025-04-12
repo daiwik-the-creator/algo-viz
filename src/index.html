@@ -1,11 +1,6 @@
-<!-- File: Assignment_6.html
-Programmer: Daiwik Bhola
-Description: 3D Tetrahedron in WebGL including controls for Rotate, Scale, Translate, Reflect, Shear, and Clustering (K-Means & DBSCAN)
-Creation Date: 2025-03-19 -->
-
 <html>
   <head>
-    <title>Assignment #6</title>
+    <title>Algo Viz</title>
     <style>
       /* Canvas as background */
       #game-surface {
@@ -53,50 +48,15 @@ Creation Date: 2025-03-19 -->
     </canvas>
 
     <div id="controls">
-      <strong>Translate:</strong><br>
-      <label>-X
-          <input type="range" id="translateX" min="-5" max="5" step="0.1" value="0">
-          +X
-      </label>
-      <label>-Y
-        <input type="range" id="translateY" min="-5" max="5" step="0.1" value="0">
-        +Y
-      </label>
-      <label>-Z
-        <input type="range" id="translateZ" min="-5" max="5" step="0.1" value="0">
-        +Z
-      </label>      
-      <br>
-      <strong>Rotate:</strong><br>
-      <label>-X
-          <input type="range" id="rotateX" min="-180" max="180" step="1" value="0">
-          +X
-      </label>
-      <label>-Y
-        <input type="range" id="rotateY" min="-180" max="180" step="1" value="0">
-        +Y
-      </label>
-      <label>-Z
-        <input type="range" id="rotateZ" min="-180" max="180" step="1" value="0">
-        +Z
-      </label>
-      <br>
-      <strong>Scale:</strong><br>
-      <label>-X
-          <input type="range" id="scaleX" min="0.1" max="5" step="0.1" value="1">
-          +X
-      </label>
-      <label>-Y
-        <input type="range" id="scaleY" min="0.1" max="5" step="0.1" value="1">
-        +Y
-      </label>
-      <label>-Z
-        <input type="range" id="scaleZ" min="0.1" max="5" step="0.1" value="1">
-        +Z
-      </label>
-      <br>
-      <button onclick="applyFirstTransform()">Scale 0.2 +X & Rotate 45 -Y</button><br><br>
-
+      <strong>Dataset:</strong><br><br>
+      <select id="data" onchange="setData()">
+        <option value="default">Default</option>
+        <option value="swissroll">Swiss Roll</option>
+        <option value="noise">Noise</option>
+      </select>
+      <br><br>
+      <label for="upload">Upload dataset (.csv):</label>
+      <input type="file" id="upload" accept=".csv"><br><br>
       <strong>Clustering:</strong><br>
       <label>Algorithm:
         <select id="clusteringMethod" onchange="initializeClustering()">
@@ -104,29 +64,33 @@ Creation Date: 2025-03-19 -->
           <option value="dbscan">DBSCAN</option>
         </select>
       </label>
-      <button onclick="runClustering()">Run Clustering</button><br><br>
+      
+      <div id="kInputContainer" style="display: block; margin-top: 8px;">
+        <label for="kValue">Number of Clusters (k):</label>
+        <input type="number" id="kValue" min="1" value="3">
+      </div>
+      
+      <br>
+      <button onclick="runClustering()">Run Clustering Step</button><br><br>
+      <label> 
+        <label><strong>Light Position:</strong></label>
+        <label for="lightX">X:</label>
+        <input type="number" id="lightX" step="0.1" value="10"><br>
+        <label for="lightY">Y:</label>
+        <input type="number" id="lightY" step="0.1" value="10"><br>
+        <label for="lightZ">Z:</label>
+        <input type="number" id="lightZ" step="0.1" value="0"><br>
+
+        <label>
+          <input type="checkbox" id="toggleTexture" checked />
+          Enable Texture
+        </label>
+        <label>
+        <input type="checkbox" id="toggleLighting" checked />
+        Enable Lighting & Shading
+      </label>      
       <button onclick="reset()">Reset</button>
     </div>
-
-    <!-- <div id="bonus-controls">
-      <strong>Reflection:</strong><br>
-      <label>Reflect X
-        <input type="checkbox" id="reflectX">
-      </label><br>
-      <label>Reflect Y
-        <input type="checkbox" id="reflectY">
-      </label><br>
-      <label>Reflect Z
-        <input type="checkbox" id="reflectZ">
-      </label><br>
-      <strong>Shear:</strong><br>
-      <label for="shearX">Shear X:</label>
-      <input type="number" id="shearX" value="0" step="0.1"><br>
-      <label for="shearY">Shear Y:</label>
-      <input type="number" id="shearY" value="0" step="0.1"><br>
-      <label for="shearZ">Shear Z:</label>
-      <input type="number" id="shearZ" value="0" step="0.1"><br>
-    </div> -->
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
     <script src="../Common/initShaders.js"></script>
@@ -135,10 +99,28 @@ Creation Date: 2025-03-19 -->
     <script src="clustering.js"></script>
     <script src="data.js"></script>
     <script>
+
+      document.getElementById("toggleLighting").addEventListener("change", (e) => {
+        lightingEnabled = e.target.checked;
+      });
+
+      document.getElementById("toggleTexture").addEventListener("change", (e) => {
+        textureEnabled = e.target.checked;
+      });
+
+      document.getElementById("upload").addEventListener("change", (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+    
+        handleUploadedCSV(file); 
+    });    
+
       function initializeClustering() {
         let method = document.getElementById("clusteringMethod").value;
+        kInputContainer.style.display = method === "kmeans" ? "block" : "none";
         if (method === "kmeans") {
-          kMeans.initialize();
+          const k = parseInt(document.getElementById("kValue").value);
+          kMeans.initialize(k);        
         } else if (method === "dbscan") {
           dbscan.initialize();
         }
@@ -152,6 +134,14 @@ Creation Date: 2025-03-19 -->
           dbscan.nextStep();
         }
       }
+
+      document.getElementById("kValue").addEventListener("input", () => {
+        const method = document.getElementById("clusteringMethod").value;
+        if (method === "kmeans") {
+          const k = parseInt(document.getElementById("kValue").value);
+          kMeans.initialize(k);
+        }
+      });      
     </script>
   </body>
 </html>

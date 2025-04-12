@@ -2,13 +2,14 @@
 // K-MEANS CLUSTERING IMPLEMENTATION
 // ===================================
 let kMeans = {
-    k: 3,
+    k: 0,
     centroids: [],
     clusters: [],
     clusterColors: [],
     iteration: 0,
 
-    initialize() {
+    initialize(k) {
+        this.k = k;
         this.centroids = randomPoints(this.k);//dataPoints.slice(0, this.k).map(p => [p.x, p.y, p.z]); // Select initial centroids
         this.clusters = new Array(dataPoints.length).fill(-1);
         this.clusterColors = generateClusterColors(this.k);

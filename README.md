@@ -1,7 +1,7 @@
-# 3D Algorithm Visualizer
+# 3D Clustering Visualizer
 
 ## 🌐 Live Demo
-You can try the live version here: [https://daiwik-the-creator.github.io/algo-viz/](https://daiwik-the-creator.github.io/algo-viz/)
+You can try the live version here: [https://daiwik-the-creator.github.io/clustering-viz/](https://daiwik-the-creator.github.io/clustering-viz/)
 
 ---
 
@@ -38,5 +38,5 @@ Using interactive 3D visualization, users can explore clustering dynamics, obser
 
 1. **Clone or download** the repository to your machine:
    ```bash
-   git clone https://github.com/daiwik-the-creator/algo-viz.git
-   cd algo-viz
+   git clone https://github.com/daiwik-the-creator/clustering-viz.git
+   cd clustering-vi
